@@ -1,0 +1,143 @@
+{
+  "name": "WA - Status Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "wa-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5e82e571-f3c2-4a08-ab4a-ade8fd8ad0a7",
+      "name": "Webhook Verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "9bc7e415-b632-4f98-9ff6-208f2ec8ec1b"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.verify_token'] === 'YOUR_VERIFY_TOKEN' ? $json.query['hub.challenge'] : 'forbidden' }}",
+        "options": {}
+      },
+      "id": "e60f1533-3df2-4fcf-b15b-fae15a88569c",
+      "name": "Respond Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-status",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "caff3c56-43e1-4dff-80c2-8a8b2fe094bc",
+      "name": "Webhook Events (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "459268f1-c801-4e25-809e-82733f226789"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Meta posts statuses (sent/delivered/read/failed) and inbound messages here.\n// We keep delivered/read/failed (fewer sheet writes) and detect STOP-style opt-outs.\nconst body = $input.first().json.body || {};\nconst out = [];\nconst iso = ts => new Date(Number(ts) * 1000).toISOString();\nfor (const entry of (body.entry || [])) {\n  for (const ch of (entry.changes || [])) {\n    const v = ch.value || {};\n    for (const s of (v.statuses || [])) {\n      if (!['delivered', 'read', 'failed'].includes(s.status)) continue;\n      const err = (s.errors && s.errors[0]) || {};\n      out.push({ json: {\n        campaign_id: s.biz_opaque_callback_data || '',\n        wa_message_id: s.id,\n        phone: s.recipient_id,\n        status: s.status,\n        error_code: err.code || '',\n        error_text: (err.error_data && err.error_data.details) || err.message || err.title || '',\n        timestamp: iso(s.timestamp)\n      }});\n    }\n    for (const m of (v.messages || [])) {\n      const txt = ((m.text && m.text.body) || (m.button && (m.button.text || m.button.payload)) ||\n                   (m.interactive && m.interactive.button_reply && m.interactive.button_reply.title) || '')\n                  .trim().toUpperCase();\n      if (['STOP', 'UNSUBSCRIBE', 'STOP PROMOTIONS', 'OPT OUT', 'OPTOUT'].includes(txt)) {\n        out.push({ json: {\n          campaign_id: '', wa_message_id: m.id, phone: m.from, status: 'optout',\n          error_code: '', error_text: '', timestamp: iso(m.timestamp)\n        }});\n      }\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "3a70eb7f-4391-41be-a2d4-6119a3dc930e",
+      "name": "Parse Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Events"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "eed7cef2-247a-4392-b9b1-f950c2cd7fa2",
+      "name": "Append to Events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        240
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Verify (GET)": {
+      "main": [
+        [
+          {
+            "node": "Respond Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Events (POST)": {
+      "main": [
+        [
+          {
+            "node": "Parse Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Events": {
+      "main": [
+        [
+          {
+            "node": "Append to Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+desktop-app/build/
+desktop-app/dist/
+desktop-app/*.spec
+.gemini/
+.env

@@ -1,0 +1,183 @@
+{
+  "name": "WA - Send Campaign",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-send-campaign",
+        "responseMode": "onReceived",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "6452cb0f-34c1-40e7-bc28-718833afc72f",
+      "name": "Webhook Send",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "2b580288-4d08-42e7-880b-e00e76904db3",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "WA n8n Webhook Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One output item per contact, with the full WhatsApp API payload ready to send.\nconst b = $input.first().json.body || {};\nconst contacts = Array.isArray(b.contacts) ? b.contacts : [];\nif (!b.campaignId || !b.templateName || !b.language) {\n  throw new Error('campaignId, templateName and language are required');\n}\nreturn contacts.map(c => {\n  const params = Array.isArray(c.params) ? c.params : [];\n  const template = { name: b.templateName, language: { code: b.language } };\n  if (params.length) {\n    template.components = [{\n      type: 'body',\n      parameters: params.map(p => ({ type: 'text', text: String(p) }))\n    }];\n  }\n  return { json: {\n    campaignId: b.campaignId,\n    phone: String(c.phone),\n    payload: {\n      messaging_product: 'whatsapp',\n      recipient_type: 'individual',\n      to: String(c.phone),\n      type: 'template',\n      biz_opaque_callback_data: b.campaignId,   // comes back in every status webhook\n      template\n    }\n  }};\n});"
+      },
+      "id": "215c057b-e174-4ae9-8d49-ef4dc04c8939",
+      "name": "Prepare Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/YOUR_PHONE_NUMBER_ID/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "be8a2b81-344a-42fd-a656-4b8224a0a74d",
+      "name": "Send via WhatsApp API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "WhatsApp Cloud Token"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "1 message every 1.5 s. Lower batchInterval to go faster (Google Sheets write quotas and your daily WhatsApp limit still apply)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Turn the WhatsApp API response (success OR error body) into one row for the Messages sheet.\nconst src = $('Prepare Messages').item.json;\nconst r = $json || {};\nconst id = r.messages && r.messages[0] && r.messages[0].id;\nconst e = r.error || null;\nlet err = '';\nif (!id) {\n  if (e && typeof e === 'object') {\n    const details = (e.error_data && e.error_data.details) || e.message || '';\n    err = `${e.code || ''} ${details}`.trim();\n  } else {\n    err = e ? String(e) : 'unknown error (no message id returned)';\n  }\n}\nreturn { json: {\n  campaign_id: src.campaignId,\n  phone: src.phone,\n  wa_message_id: id || '',\n  send_status: id ? 'accepted' : 'failed',\n  error: err,\n  sent_at: new Date().toISOString()\n}};"
+      },
+      "id": "5b117deb-7823-4900-9247-724f14246c78",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Messages"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "3b18401e-a9f7-4b62-b3d7-988d302fbbd0",
+      "name": "Append to Messages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Send": {
+      "main": [
+        [
+          {
+            "node": "Prepare Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Messages": {
+      "main": [
+        [
+          {
+            "node": "Send via WhatsApp API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via WhatsApp API": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Append to Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

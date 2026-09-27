@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="WhatsApp Bulk Sender — Send approved marketing templates to your contacts via the WhatsApp Cloud API.">
+  <title>WhatsApp Bulk Sender</title>
+  <link rel="stylesheet" href="/src/index.css">
+</head>
+<body>
+
+  <!-- Toast notifications -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <div class="app-wrapper">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="app-header__icon">💬</div>
+      <h1>WhatsApp Bulk Sender</h1>
+      <p>Send approved marketing templates to your contacts</p>
+    </header>
+
+    <!-- Step 1: Template -->
+    <section class="step-card" id="stepTemplate">
+      <div class="step-card__header">
+        <span class="step-badge">1</span>
+        <h2>Message Template</h2>
+        <span class="step-subtitle">Approved templates only</span>
+        <button class="btn btn--secondary btn--sm" id="btnRefreshTemplates" title="Reload templates from server">
+          <span>🔄</span> Refresh
+        </button>
+      </div>
+      <!-- Loading indicator -->
+      <div class="loading-row" id="templateLoading">
+        <span class="spinner"></span> Loading templates…
+      </div>
+      <div class="form-group hidden" id="templateSelectWrap">
+        <label class="form-label" for="selectTemplate">Select Template</label>
+        <select id="selectTemplate" disabled>
+          <option value="">— Loading… —</option>
+        </select>
+      </div>
+      <div class="template-preview" id="templatePreview"></div>
+    </section>
+
+    <!-- Step 2: Contacts -->
+    <section class="step-card" id="stepContacts">
+      <div class="step-card__header">
+        <span class="step-badge">2</span>
+        <h2>Contacts File</h2>
+        <span class="step-subtitle">Excel (.xlsx / .xlsm) or CSV</span>
+      </div>
+
+      <!-- File drop -->
+      <div class="file-drop" id="fileDrop">
+        <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv">
+        <div class="file-drop__icon">📂</div>
+        <div class="file-drop__text">
+          Drop your file here or <strong>click to browse</strong>
+        </div>
+      </div>
+      <div class="file-info hidden" id="fileInfo">
+        <span class="file-icon">📄</span>
+        <span id="fileInfoText"></span>
+      </div>
+
+      <!-- Phone column picker -->
+      <div class="form-grid mt-4 hidden" id="phonePickerWrap">
+        <div class="form-group">
+          <label class="form-label" for="selectPhone">Phone Column</label>
+          <select id="selectPhone"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inputCC">Default Country Code</label>
+          <input type="text" id="inputCC" value="91" style="max-width:90px">
+        </div>
+      </div>
+
+      <!-- Variable mapping -->
+      <div class="mapping-row hidden" id="mappingRow"></div>
+
+      <!-- Data preview table -->
+      <div class="data-table-wrap hidden" id="dataPreviewWrap">
+        <table class="data-table" id="dataPreview">
+          <thead id="dataPreviewHead"></thead>
+          <tbody id="dataPreviewBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Action row: Validate + Import to Sheets -->
+      <div class="action-bar mt-4">
+        <button class="btn btn--primary" id="btnValidate" disabled>
+          <span>✔</span> Validate Contacts
+        </button>
+        <button class="btn btn--secondary" id="btnImportSheets" disabled title="Push the uploaded contacts to Google Sheets via the backend">
+          <span>📊</span> Import to Google Sheets
+        </button>
+        <button class="btn btn--secondary btn--sm hidden" id="btnExportInvalid">
+          Export invalid rows
+        </button>
+      </div>
+
+      <!-- Validation summary -->
+      <div class="validation-summary hidden" id="validationSummary"></div>
+    </section>
+
+    <!-- Step 3: Send -->
+    <section class="step-card" id="stepSend">
+      <div class="step-card__header">
+        <span class="step-badge">3</span>
+        <h2>Send</h2>
+      </div>
+
+      <!-- Consent -->
+      <label class="checkbox-wrap" id="consentWrap">
+        <input type="checkbox" id="checkConsent">
+        <span>I confirm every contact in this file has opted in to receive WhatsApp marketing messages from us.</span>
+      </label>
+
+      <!-- Max & test -->
+      <div class="form-grid mt-4">
+        <div class="form-group">
+          <label class="form-label" for="inputMax">Max Messages This Run</label>
+          <input type="number" id="inputMax" value="250" min="1">
+          <span class="text-xs text-muted">Keep at or below your WhatsApp Manager daily limit</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inputTestPhone">Test Number</label>
+          <div class="flex-row">
+            <input type="text" id="inputTestPhone" placeholder="e.g. 9876543210">
+            <button class="btn btn--secondary btn--sm" id="btnTest">Send 1 test</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="action-bar mt-5">
+        <button class="btn btn--primary" id="btnStart" disabled>
+          <span>🚀</span> Start Sending
+        </button>
+        <button class="btn btn--danger" id="btnStop" disabled>
+          <span>⏹</span> Stop
+        </button>
+        <button class="btn btn--secondary" id="btnRefresh" disabled>
+          <span>🔄</span> Refresh Delivery Status
+        </button>
+        <button class="btn btn--secondary" id="btnExportFails" disabled>
+          <span>📥</span> Export Failures
+        </button>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap hidden" id="progressWrap">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-label">
+          <span id="progressText">0 / 0</span>
+          <span id="progressPct">0%</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-bar hidden" id="statsBar">
+        <div class="stat-item stat-item--accepted">
+          <span class="stat-item__value" id="statAccepted">0</span>
+          <span class="stat-item__label">Accepted</span>
+        </div>
+        <div class="stat-item stat-item--delivered">
+          <span class="stat-item__value" id="statDelivered">0</span>
+          <span class="stat-item__label">Delivered</span>
+        </div>
+        <div class="stat-item stat-item--read">
+          <span class="stat-item__value" id="statRead">0</span>
+          <span class="stat-item__label">Read</span>
+        </div>
+        <div class="stat-item stat-item--failed">
+          <span class="stat-item__value" id="statSendFailed">0</span>
+          <span class="stat-item__label">Send Failed</span>
+        </div>
+        <div class="stat-item stat-item--failed">
+          <span class="stat-item__value" id="statDeliveryFailed">0</span>
+          <span class="stat-item__label">Delivery Failed</span>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="log-console" id="logConsole"></div>
+    </section>
+
+  </div><!-- /app-wrapper -->
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

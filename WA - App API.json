@@ -1,0 +1,984 @@
+{
+  "name": "WA - App API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-send-campaign",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "acd74f42-b7e6-4af4-82da-4d38cc63c834",
+      "name": "Webhook Send",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        16
+      ],
+      "webhookId": "2b580288-4d08-42e7-880b-e00e76904db3",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// One output item per contact, with the full WhatsApp API payload ready to send.\nconst b = $input.first().json.body || {};\nconst contacts = Array.isArray(b.contacts) ? b.contacts : [];\nif (!b.campaignId || !b.templateName || !b.language) {\n  throw new Error('campaignId, templateName and language are required');\n}\nreturn contacts.map(c => {\n  const params = Array.isArray(c.params) ? c.params : [];\n  const template = { name: b.templateName, language: { code: b.language } };\n  if (params.length) {\n    template.components = [{\n      type: 'body',\n      parameters: params.map(p => ({ type: 'text', text: String(p) }))\n    }];\n  }\n  return { json: {\n    campaignId: b.campaignId,\n    phone: String(c.phone),\n    payload: {\n      messaging_product: 'whatsapp',\n      recipient_type: 'individual',\n      to: String(c.phone),\n      type: 'template',\n      biz_opaque_callback_data: b.campaignId,   // comes back in every status webhook\n      template\n    }\n  }};\n});"
+      },
+      "id": "650e8fdd-6d7c-45a6-8334-ced30e71d4a6",
+      "name": "Prepare Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1279713081901109/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "57e01710-f7f7-435c-8875-70f01ba2bd84",
+      "name": "Send via WhatsApp API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        544,
+        16
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "1 message every 1.5 s. Lower batchInterval to go faster (Google Sheets write quotas and your daily WhatsApp limit still apply)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Turn the WhatsApp API response (success OR error body) into one row for the Messages sheet.\nconst src = $('Prepare Messages').item.json;\nconst r = $json || {};\nconst id = r.messages && r.messages[0] && r.messages[0].id;\nconst e = r.error || null;\nlet err = '';\nif (!id) {\n  if (e && typeof e === 'object') {\n    const details = (e.error_data && e.error_data.details) || e.message || '';\n    err = `${e.code || ''} ${details}`.trim();\n  } else {\n    err = e ? String(e) : 'unknown error (no message id returned)';\n  }\n}\nreturn { json: {\n  campaign_id: src.campaignId,\n  phone: src.phone,\n  wa_message_id: id || '',\n  send_status: id ? 'accepted' : 'failed',\n  error: err,\n  sent_at: new Date().toISOString()\n}};"
+      },
+      "id": "b87c3e65-9e87-4cf7-bb3e-a8c7680b15fb",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU",
+          "mode": "list",
+          "cachedResultName": "WhatsApp",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Events: ",
+              "displayName": "Events: ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_id | ",
+              "displayName": "campaign_id | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "wa_message_id | ",
+              "displayName": "wa_message_id | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone | ",
+              "displayName": "phone | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status | ",
+              "displayName": "status | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_code | ",
+              "displayName": "error_code | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_text | ",
+              "displayName": "error_text | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7866b472-e10b-475f-aecf-58f09cd27c07",
+      "name": "Append to Messages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1024,
+        16
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "wa-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "89e23aee-d810-40a8-8848-40ccddcd03ba",
+      "name": "Webhook Verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        272
+      ],
+      "webhookId": "9bc7e415-b632-4f98-9ff6-208f2ec8ec1b"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.verify_token'] === 'my_whatsapp_secret_123' ? $json.query['hub.challenge'] : 'forbidden' }}",
+        "options": {}
+      },
+      "id": "f89d3228-e126-43fa-9c59-8e20bc613f86",
+      "name": "Respond Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-status",
+        "options": {}
+      },
+      "id": "58a26f11-1bb4-46e0-b493-c8b60e3d6702",
+      "name": "Webhook Events (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        512
+      ],
+      "webhookId": "459268f1-c801-4e25-809e-82733f226789"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Meta posts statuses (sent/delivered/read/failed) and inbound messages here.\n// We keep delivered/read/failed (fewer sheet writes) and detect STOP-style opt-outs.\nconst body = $input.first().json.body || {};\nconst out = [];\nconst iso = ts => new Date(Number(ts) * 1000).toISOString();\nfor (const entry of (body.entry || [])) {\n  for (const ch of (entry.changes || [])) {\n    const v = ch.value || {};\n    for (const s of (v.statuses || [])) {\n      if (!['delivered', 'read', 'failed'].includes(s.status)) continue;\n      const err = (s.errors && s.errors[0]) || {};\n      out.push({ json: {\n        campaign_id: s.biz_opaque_callback_data || '',\n        wa_message_id: s.id,\n        phone: s.recipient_id,\n        status: s.status,\n        error_code: err.code || '',\n        error_text: (err.error_data && err.error_data.details) || err.message || err.title || '',\n        timestamp: iso(s.timestamp)\n      }});\n    }\n    for (const m of (v.messages || [])) {\n      const txt = ((m.text && m.text.body) || (m.button && (m.button.text || m.button.payload)) ||\n                   (m.interactive && m.interactive.button_reply && m.interactive.button_reply.title) || '')\n                  .trim().toUpperCase();\n      if (['STOP', 'UNSUBSCRIBE', 'STOP PROMOTIONS', 'OPT OUT', 'OPTOUT'].includes(txt)) {\n        out.push({ json: {\n          campaign_id: '', wa_message_id: m.id, phone: m.from, status: 'optout',\n          error_code: '', error_text: '', timestamp: iso(m.timestamp)\n        }});\n      }\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "d4d219a2-7b4d-4ffe-9c90-3b44f1a678c5",
+      "name": "Parse Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU",
+          "mode": "list",
+          "cachedResultName": "WhatsApp",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2088120088,
+          "mode": "list",
+          "cachedResultName": "Sheet2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit#gid=2088120088"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Messages: ",
+              "displayName": "Messages: ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "campaign_id | ",
+              "displayName": "campaign_id | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone | ",
+              "displayName": "phone | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "wa_message_id | ",
+              "displayName": "wa_message_id | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "send_status | ",
+              "displayName": "send_status | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error | ",
+              "displayName": "error | ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ec2909b6-809b-419d-a4e1-24dc2c0b3b12",
+      "name": "Append to Events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        544,
+        512
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-list-templates",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1f3e895d-39e1-4b78-8f92-92a61aa943ca",
+      "name": "Webhook Templates",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        784
+      ],
+      "webhookId": "82311886-52fa-4d3a-a52b-705d3870e2a4",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v23.0/YOUR_WABA_ID/message_templates",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "name,language,status,category,components"
+            },
+            {
+              "name": "limit",
+              "value": "200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2eced792-e691-4a91-adef-5fa8dbccadbf",
+      "name": "Get Templates from Meta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        304,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nreturn [{ json: { templates: (d.data || []).filter(t => t.status === 'APPROVED') } }];"
+      },
+      "id": "4981123b-82d7-44c3-89f0-7a202f3f94ff",
+      "name": "Shape Templates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "b5049ee5-14a4-491b-a520-d3d68defdd11",
+      "name": "Respond Templates",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-campaign-status",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a0466b68-8096-4593-8069-771a3eea816a",
+      "name": "Webhook Status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1024
+      ],
+      "webhookId": "a85b5820-e090-49da-91cc-0fecf9ef5483",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU",
+          "mode": "list",
+          "cachedResultName": "WhatsApp",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "campaign_id | ",
+              "lookupValue": "={{ $('Webhook Status').first().json.body.campaignId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "caa58b7f-06e5-4c24-a51e-0e70b92a478e",
+      "name": "Get Messages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        304,
+        1024
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU",
+          "mode": "list",
+          "cachedResultName": "WhatsApp",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2088120088,
+          "mode": "list",
+          "cachedResultName": "Sheet2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit#gid=2088120088"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "campaign_id | ",
+              "lookupValue": "={{ $('Webhook Status').first().json.body.campaignId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6769759e-2902-48ba-9f93-d9d871c61a81",
+      "name": "Get Events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        544,
+        1024
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cid = $('Webhook Status').first().json.body.campaignId;\nconst msgs = $('Get Messages').all().map(i => i.json).filter(r => r.campaign_id === cid && r.phone);\nconst evs  = $('Get Events').all().map(i => i.json).filter(r => r.campaign_id === cid && r.wa_message_id);\n\nconst accepted   = msgs.filter(m => m.send_status === 'accepted');\nconst sendFailed = msgs.filter(m => m.send_status === 'failed');\n\nconst st = {};   // wa_message_id -> flags\nfor (const e of evs) {\n  const s = st[e.wa_message_id] || (st[e.wa_message_id] = {});\n  if (e.status === 'read') { s.read = true; s.delivered = true; }\n  else if (e.status === 'delivered') { s.delivered = true; }\n  else if (e.status === 'failed') { s.failed = true; s.reason = `${e.error_code} ${e.error_text}`.trim(); }\n}\n\nlet delivered = 0, read = 0, deliveryFailed = 0;\nconst failures = sendFailed.map(m => ({ phone: m.phone, stage: 'send', reason: m.error }));\nfor (const m of accepted) {\n  const s = st[m.wa_message_id] || {};\n  if (s.read) read++;\n  if (s.delivered) delivered++;\n  else if (s.failed) { deliveryFailed++; failures.push({ phone: m.phone, stage: 'delivery', reason: s.reason }); }\n}\nreturn [{ json: {\n  processed: msgs.length, accepted: accepted.length, send_failed: sendFailed.length,\n  delivered, read, delivery_failed: deliveryFailed, failures\n}}];"
+      },
+      "id": "5d1f3e31-f7ad-4050-ba39-2a2db0bc9296",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "bc087ef9-42d3-4b47-926e-6c48fb08a060",
+      "name": "Respond Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-optouts",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c5d98ad1-0c39-4d46-bdb4-6fe839cb3b77",
+      "name": "Webhook Optouts",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1264
+      ],
+      "webhookId": "6d583a6e-9d51-492e-85b3-c102420324c9",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU",
+          "mode": "list",
+          "cachedResultName": "WhatsApp",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18tjzvlIM3qfyF-LZaDfOxEL5FFsHCG2vXZtuROr4PmU/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "c0f1d551-9d38-4329-977e-67c930241fab",
+      "name": "Get Optout Events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        304,
+        1264
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const phones = [...new Set(\n  $input.all().map(i => i.json).filter(r => r.status === 'optout' && r.phone).map(r => String(r.phone))\n)];\nreturn [{ json: { phones } }];"
+      },
+      "id": "18840a34-e6db-4776-be32-3e2570aaab3e",
+      "name": "List Phones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "9819c01b-4f19-4127-a28b-b86c4313f120",
+      "name": "Respond Optouts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-import-contacts",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "c1a2b3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Webhook Import Contacts",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1504
+      ],
+      "webhookId": "c1a2b3d4-e5f6-7890-abcd-ef1234567891",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5GR4ywSMkf4hXD6z",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.body.sheetTab || 'Contacts' }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "c1a2b3d4-e5f6-7890-abcd-ef1234567892",
+      "name": "Append Contacts to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        304,
+        1504
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "26KHVgVGtHtgvRHx",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "Appends all contacts from the uploaded Excel/CSV to the specified tab (default: Contacts). The tab must exist in the sheet first."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ imported: $input.all().length }) }}",
+        "options": {}
+      },
+      "id": "c1a2b3d4-e5f6-7890-abcd-ef1234567893",
+      "name": "Respond Import",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        1504
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Send": {
+      "main": [
+        [
+          {
+            "node": "Prepare Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Messages": {
+      "main": [
+        [
+          {
+            "node": "Send via WhatsApp API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via WhatsApp API": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Append to Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Verify (GET)": {
+      "main": [
+        [
+          {
+            "node": "Respond Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Events (POST)": {
+      "main": [
+        [
+          {
+            "node": "Parse Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Events": {
+      "main": [
+        [
+          {
+            "node": "Append to Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Templates": {
+      "main": [
+        [
+          {
+            "node": "Get Templates from Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Templates from Meta": {
+      "main": [
+        [
+          {
+            "node": "Shape Templates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Templates": {
+      "main": [
+        [
+          {
+            "node": "Respond Templates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Status": {
+      "main": [
+        [
+          {
+            "node": "Get Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Messages": {
+      "main": [
+        [
+          {
+            "node": "Get Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Events": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Respond Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Optouts": {
+      "main": [
+        [
+          {
+            "node": "Get Optout Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Optout Events": {
+      "main": [
+        [
+          {
+            "node": "List Phones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Phones": {
+      "main": [
+        [
+          {
+            "node": "Respond Optouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Import Contacts": {
+      "main": [
+        [
+          {
+            "node": "Append Contacts to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Contacts to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Respond Import",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "09bccae7-502d-4012-8e80-1cc31126b4b1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "35eea3525e968264003fab61a47e51e74d81622e7db8815c1fb9275902f8193b"
+  },
+  "nodeGroups": [],
+  "id": "nYGuePgIPQoAMRSo",
+  "tags": []
+}
